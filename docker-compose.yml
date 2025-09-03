@@ -1,0 +1,28 @@
+services:
+  gym-scraper:
+    build: .
+    container_name: lemon-gym-scraper
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Vilnius
+      # Database configuration
+      - DATABASE_TYPE=${DATABASE_TYPE:-sqlite}
+      - MONGODB_URI=${MONGODB_URI:-}
+      - MONGODB_USERNAME=${MONGODB_USERNAME:-}
+      - MONGODB_PASSWORD=${MONGODB_PASSWORD:-}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-}
+    volumes:
+      # Persistent storage for database and logs (only used with SQLite)
+      - ./data:/app/data
+      - ./logs:/app/logs
+    # Optionally expose ports if you add a web interface later
+    # ports:
+    #   - "3000:3000"
+    
+    # Health check to ensure the scraper is working
+    healthcheck:
+      test: ["CMD", "ruby", "-e", "require_relative '/app/lib/database_factory'; DatabaseFactory.create.close"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
