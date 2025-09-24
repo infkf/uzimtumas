@@ -8,91 +8,27 @@ class GymReporter
   end
 
   def generate_daily_report
-    puts "📊 Daily Gym Usage Report - #{Date.today}"
-    puts "=" * 50
-    
-    latest_data = @db.get_latest_data
-    
-    if latest_data.empty?
-      puts "❌ No data available"
+    puts "📊 Last 24 Hours Gym Usage - #{Date.today}"
+    puts "=" * 60
+
+    data_24h = @db.get_24hour_data
+
+    if data_24h.empty?
+      puts "❌ No data available for the last 24 hours"
       return
     end
-    
-    # Handle both SQLite and MongoDB data formats
-    first_record = latest_data.first
-    timestamp = first_record['timestamp'] || first_record[:timestamp]
-    
-    puts "🕒 Latest reading: #{timestamp}"
-    puts
-    
-    # Group by city - handle both formats
-    by_city = latest_data.group_by { |row| 
-      row['city'] || row[:city] 
-    }
-    
-    by_city.each do |city, gyms|
-      next if city.nil? || city.empty?
-      
-      puts "📍 #{city.upcase}"
-      puts "-" * 30
-      
-      sorted_gyms = gyms.sort_by { |gym| 
-        -(gym['usage_percentage'] || gym[:usage_percentage])
-      }
-      
-      sorted_gyms.each do |gym|
-        usage = gym['usage_percentage'] || gym[:usage_percentage]
-        name = gym['gym_name'] || gym[:gym_name]
-        usage_bar = create_usage_bar(usage)
-        puts "#{name.ljust(25)} #{usage.to_s.rjust(3)}% #{usage_bar}"
-      end
-      puts
-    end
-    
-    # Weekly stats
-    puts "📈 7-Day Statistics"
-    puts "-" * 30
-    
-    stats = @db.get_usage_stats(7)
-    
-    if stats.any?
-      puts "Top 5 Busiest (Avg):"
-      stats.first(5).each_with_index do |gym, index|
-        puts "  #{index + 1}. #{gym[:gym_name]} - #{gym[:avg_usage]}% avg"
-      end
-      
-      puts "\nTop 5 Quietest (Avg):"
-      stats.last(5).reverse.each_with_index do |gym, index|
-        puts "  #{index + 1}. #{gym[:gym_name]} - #{gym[:avg_usage]}% avg"
+
+    # Group by gym name
+    by_gym = data_24h.group_by { |row| row['gym_name'] }
+
+    by_gym.each do |gym_name, readings|
+      puts "\n#{gym_name}:"
+      readings.each do |reading|
+        puts "\t#{reading['time']}\t#{reading['usage_percentage']}%"
       end
     end
-    
-    # Hourly peak analysis
-    puts "\n🕒 Peak Hours Analysis (7-Day Average)"
-    puts "-" * 50
-    
-    hourly_stats = @db.get_hourly_usage_stats(7)
-    
-    if hourly_stats.any?
-      by_city_hourly = hourly_stats.group_by { |gym| gym[:city] }
-      
-      by_city_hourly.each do |city, gyms|
-        next if city.nil? || city.empty?
-        
-        puts "\n📍 #{city.upcase} - PEAK HOURS"
-        puts "-" * 35
-        
-        gyms.sort_by { |gym| -(gym[:peak_usage] || 0) }.each do |gym|
-          if gym[:peak_hour] && gym[:peak_usage]
-            peak_time = format_hour(gym[:peak_hour])
-            quiet_time = format_hour(gym[:quiet_hour])
-            puts "#{gym[:gym_name].ljust(25)} 🔥 #{peak_time} (#{gym[:peak_usage]}%) 😴 #{quiet_time} (#{gym[:quiet_usage]}%)"
-          end
-        end
-      end
-    else
-      puts "❌ Not enough data for hourly analysis"
-    end
+
+    puts "\n📈 Summary: #{by_gym.keys.length} gyms, #{data_24h.length} total readings"
   end
 
   def create_usage_bar(usage)

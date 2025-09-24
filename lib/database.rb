@@ -58,6 +58,19 @@ class GymDatabase
     )
   end
 
+  def get_24hour_data
+    @db.execute(
+      "SELECT
+        gym_name,
+        strftime('%H:%M', timestamp) as time,
+        usage_percentage,
+        timestamp
+      FROM gym_usage
+      WHERE timestamp >= datetime('now', '-1 day')
+      ORDER BY gym_name, timestamp"
+    )
+  end
+
   def get_gym_history(gym_name, days = 7)
     @db.execute(
       "SELECT * FROM gym_usage WHERE gym_name LIKE ? AND timestamp >= datetime('now', '-#{days} days') ORDER BY timestamp DESC",

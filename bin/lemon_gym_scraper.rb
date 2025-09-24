@@ -21,74 +21,82 @@ class LemonGymScraper
   def scrape_club_usage
     @driver.get('https://www.lemongym.lt/klubu-uzimtumas/')
     sleep(5) # Wait for dynamic content to load
-    
-    # Extract structured club data
-    script = <<~JS
-      const clubs = [];
-      const bodyText = document.body.innerText;
-      const lines = bodyText.split('\\n').map(line => line.trim()).filter(line => line.length > 0);
-      
-      let currentCity = '';
-      let i = 0;
-      
-      while (i < lines.length) {
-        const line = lines[i];
-        
-        // Detect city headers
-        if (line.includes('KLUBAI') && !line.includes('Visi klubai')) {
-          currentCity = line.replace(' KLUBAI', '').replace(/Ų$/, 'US');
-          i++;
-          continue;
+
+    # Find all club occupancy containers (includes both club info and percentage)
+    occupancy_elements = @driver.find_elements(:css, '.clubs-occupancy')
+
+    club_data = []
+
+    occupancy_elements.each do |occupancy_element|
+      begin
+        # Extract gym name from h6 inside the club div
+        club_element = occupancy_element.find_element(:css, '.clubs-occupancy__club')
+        name_element = club_element.find_element(:css, 'h6')
+        gym_name = name_element.text.strip
+
+        # Extract address from p element
+        address = ''
+        begin
+          address_element = club_element.find_element(:css, 'p')
+          address = address_element.text.strip
+        rescue
+          # Address is optional
+        end
+
+        # Extract usage percentage from sibling h6 element
+        usage_percentage = 0
+        begin
+          percentage_element = occupancy_element.find_element(:css, 'h6.clubs-occupancy__percentage')
+          usage_text = percentage_element.text.match(/(\d+)%/)
+          usage_percentage = usage_text ? usage_text[1].to_i : 0
+        rescue
+          # Skip if no percentage found
+          next
+        end
+
+        # Determine city from parent sections or headers
+        city = determine_city_from_element(occupancy_element)
+
+        club_data << {
+          'city' => city,
+          'name' => gym_name,
+          'address' => address,
+          'usage' => usage_percentage
         }
-        
-        // Look for gym name followed by address and percentage
-        if (line && !line.match(/^\\d+%$/) && line.length > 2) {
-          let j = i + 1;
-          let address = '';
-          let percentage = '';
-          
-          // Look ahead for address and percentage
-          while (j < lines.length && j < i + 4) {
-            const nextLine = lines[j];
-            
-            if (nextLine.match(/^\\d+%$/)) {
-              percentage = nextLine;
-              break;
-            } else if (nextLine.match(/g\\.|pr\\.|al\\.|[0-9]/) && !address) {
-              address = nextLine;
-            }
-            j++;
-          }
-          
-          // Only include if we found a percentage and it's a valid gym name
-          if (percentage && 
-              !line.match(/klubai|tapti|visi|©/i) &&
-              !line.match(/^[A-ZŠŽČĄĘĮ\\s.,0-9]+$/)) {
-            
-            clubs.push({
-              city: currentCity,
-              name: line,
-              address: address,
-              usage: percentage
-            });
-          }
-        }
-        i++;
-      }
-      
-      return clubs;
-    JS
-    
-    club_data = @driver.execute_script(script)
-    
-    # Clean and deduplicate
-    clean_data = club_data
+
+      rescue => e
+        # Skip problematic elements
+        puts "⚠️ Skipped occupancy element: #{e.message}"
+        next
+      end
+    end
+
+    puts "🔍 Found #{club_data.length} clubs using CSS selectors"
+
+    # Clean, filter Vilnius only, and remove invalid data
+    club_data
       .map { |club| clean_club_data(club) }
       .select { |club| valid_club?(club) }
-      .reject { |club| club[:usage] == 100 } # Skip 100% usage (indicates no real data)
-      .uniq { |club| [normalize_name(club[:name]), club[:city]] }
-    
-    clean_data
+      .select { |club| club[:city]&.match(/VILNIUS|VILNIAUS/i) } # Only Vilnius clubs
+      .reject { |club| club[:usage] == 100 } # Skip 100% usage (indicates error data)
+      .uniq { |club| club[:name] } # Simple deduplication by name
+  end
+
+  def determine_city_from_element(club_element)
+    # Look for city headers in parent elements
+    begin
+      current = club_element
+      3.times do
+        current = current.find_element(:xpath, '..')
+        text = current.text.upcase
+        return 'VILNIAUS' if text.include?('VILNIAUS') || text.include?('VILNIUS')
+        return 'KAUNO' if text.include?('KAUNO') || text.include?('KAUNAS')
+        return 'ŠIAULIUS' if text.include?('ŠIAULIUS')
+      end
+    rescue
+      # Fallback
+    end
+    'UNKNOWN'
   end
 
   def clean_club_data(club)
@@ -108,13 +116,10 @@ class LemonGymScraper
         .upcase
   end
 
-  def normalize_name(name)
-    name.gsub(/[^A-ZŠŽČĄĘĮ0-9]/, '')
-  end
 
   def valid_club?(club)
-    club[:name].length > 2 && 
-    club[:usage] > 0 && 
+    club[:name].length > 2 &&
+    club[:usage] >= 0 &&
     !club[:name].match(/^[0-9\s.,g]+$/i)
   end
 

@@ -1,46 +1,38 @@
-FROM ruby:3.2-alpine
+FROM ruby:3.2-slim
 
-# Install dependencies for Chrome and build tools
-RUN apk add --no-cache \
-    chromium \
-    chromium-chromedriver \
-    build-base \
-    sqlite-dev \
-    tzdata \
-    dcron \
-    bash
+# Install Chrome and dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    unzip \
+    cron \
+    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set Chrome path for Selenium
-ENV CHROME_BIN=/usr/bin/chromium-browser
-ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+# Install ChromeDriver
+RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d. -f1) \
+    && wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_VERSION}/chromedriver_linux64.zip" \
+    && unzip /tmp/chromedriver.zip -d /usr/local/bin/ \
+    && chmod +x /usr/local/bin/chromedriver \
+    && rm /tmp/chromedriver.zip
+
+WORKDIR /app
+
+# Copy Gemfile and install dependencies
+COPY Gemfile Gemfile.lock ./
+RUN bundle install
+
+# Copy application
+COPY . .
+
+# Create data directory
+RUN mkdir -p data logs
 
 # Set timezone
 ENV TZ=Europe/Vilnius
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# Create app directory
-WORKDIR /app
-
-# Copy Gemfile and install gems
-COPY Gemfile Gemfile.lock ./
-RUN gem install sqlite3 --platform ruby -- --with-sqlite3-include=/usr/include --with-sqlite3-lib=/usr/lib
-RUN bundle install --without development test
-
-# Set default database type (can be overridden with environment variables)
-ENV DATABASE_TYPE=sqlite
-
-# Copy application files
-COPY . .
-
-# Create directories for logs and database
-RUN mkdir -p logs data
-RUN chmod +x bin/lemon_gym_scraper.rb lib/gym_report.rb lib/cleanup_db.rb
-
-# Create volume for persistent data
-VOLUME ["/app/data", "/app/logs"]
-
-# Set up cron using whenever gem
-RUN bundle exec whenever --update-crontab
-
-# Start cron and keep container running
-CMD ["sh", "-c", "crond && tail -f /dev/null"]
+# Run scheduler by default
+CMD ["rake", "schedule"]

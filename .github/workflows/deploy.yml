@@ -1,0 +1,41 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v0.1.5
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /app/uzimtumas
+
+            # Clone or update repository
+            if [ ! -f "README.md" ]; then
+              git clone https://github.com/${{ github.repository }}.git .
+              echo "✅ Repository cloned"
+            else
+              git pull origin main
+              echo "✅ Repository updated"
+            fi
+
+            # Setup docker-compose.yml if needed
+            if [ ! -f "docker-compose.yml" ]; then
+              cp docker-compose.prod.yml docker-compose.yml
+            fi
+
+            # Deploy
+            docker-compose down 2>/dev/null || true
+            docker-compose build --no-cache
+            docker-compose up -d
+            echo "✅ Deployment complete"
