@@ -13,8 +13,16 @@ class LemonGymScraper
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    
-    @driver = Selenium::WebDriver.for(:chrome, options: options)
+
+    # Use Chromium in Docker, Chrome locally
+    if File.exist?('/usr/bin/chromium')
+      options.binary = '/usr/bin/chromium'
+      service = Selenium::WebDriver::Service.chrome(path: '/usr/bin/chromedriver')
+      @driver = Selenium::WebDriver.for(:chrome, service: service, options: options)
+    else
+      @driver = Selenium::WebDriver.for(:chrome, options: options)
+    end
+
     @driver.manage.timeouts.implicit_wait = 10
   end
 
